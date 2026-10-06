@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Week 1: understand RP2350 reset, Boot ROM, memory roles, and prove Pico 2 W ROM BOOTSEL recovery.">
+  <title>Week 1: Reset to ROM Recovery · RP2350 Bootloader Course</title>
+  <link rel="stylesheet" href="../assets/course.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="course-mark" href="0001-reset-to-rom-recovery.html">RP2350 Bootloader Course</a>
+      <div class="header-actions">
+        <a href="../reference/course-roadmap.html">Roadmap</a>
+        <a href="../reference/glossary.html">Glossary</a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+          <span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Use dark mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="content" class="page-shell">
+    <header class="hero">
+      <p class="eyebrow">Week 1 · Architectural foundations</p>
+      <h1>Reset does not begin at <code>main()</code></h1>
+      <p class="lede">This week you will build the first trustworthy model of what the Pico 2 W does when power arrives—and prove on real hardware that immutable ROM recovery remains available independently of the program in external flash.</p>
+      <div class="metadata">
+        <span>8–10 hours</span>
+        <span>Five study blocks</span>
+        <span>No toolchain required</span>
+        <span>No flash writes</span>
+      </div>
+    </header>
+
+    <aside class="callout success">
+      <strong>Your tangible win:</strong> by the end of the week, you will be able to draw and defend the chain <code>power → reset hardware → Boot ROM → image discovery or BOOTSEL → startup → main</code>, and you will have observed ROM BOOTSEL on your own Pico 2 W.
+    </aside>
+
+    <nav class="toc" aria-label="Lesson contents">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#outcomes">Outcomes and schedule</a></li>
+        <li><a href="#model">The first boot model</a></li>
+        <li><a href="#memory">ROM, flash, and SRAM</a></li>
+        <li><a href="#day-one">Day 1: derive the chain</a></li>
+        <li><a href="#day-two">Day 2: diagnostic</a></li>
+        <li><a href="#day-three">Day 3: read primary sources</a></li>
+        <li><a href="#day-four">Day 4: hardware lab</a></li>
+        <li><a href="#day-five">Day 5: teach it back</a></li>
+        <li><a href="#assessment">Exit assessment</a></li>
+      </ol>
+    </nav>
+
+    <section id="outcomes" aria-labelledby="outcomes-heading">
+      <h2 id="outcomes-heading">Outcomes and schedule</h2>
+      <p>This week deliberately stops before compiler installation and custom firmware. A bootloader engineer needs a correct answer to “what is already running?” before adding code.</p>
+
+      <h3>By the end, you should be able to</h3>
+      <ul class="checklist">
+        <li>Separate reset hardware from the software that runs after reset.</li>
+        <li>Explain why the RP2350 Boot ROM and a custom bootloader are different programs in different storage.</li>
+        <li>Distinguish mask ROM, external flash, and SRAM by mutability, retention, and role.</li>
+        <li>Explain why the CPU does not search directly for a C++ function named <code>main</code>.</li>
+        <li>Describe BOOTSEL as a Boot ROM path, not a special application in flash.</li>
+        <li>Collect host evidence that the Pico 2 W entered ROM BOOTSEL.</li>
+        <li>State exactly what this week's model simplifies and what later weeks must refine.</li>
+      </ul>
+
+      <h3>Five-block schedule</h3>
+      <table>
+        <thead><tr><th>Block</th><th>Time</th><th>Work</th><th>Artifact</th></tr></thead>
+        <tbody>
+          <tr><td>Day 1</td><td>1.5–2 h</td><td>Build the reset-to-application mental model</td><td>A first boot-chain drawing</td></tr>
+          <tr><td>Day 2</td><td>1.5–2 h</td><td>Complete the 12-question diagnostic from memory</td><td>Baseline score and uncertainty list</td></tr>
+          <tr><td>Day 3</td><td>1.5–2 h</td><td>Verify the model against official documents</td><td>Source-evidence worksheet</td></tr>
+          <tr><td>Day 4</td><td>2 h</td><td>Observe BOOTSEL and compare normal connection</td><td>Terminal evidence and observations</td></tr>
+          <tr><td>Day 5</td><td>1.5–2 h</td><td>Teach back, correct gaps, and complete assessment</td><td>Answers sent to your teaching agent</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="model" aria-labelledby="model-heading">
+      <h2 id="model-heading">The first trustworthy boot model</h2>
+
+      <h3>Hardware events come before software instructions</h3>
+      <p>When USB power reaches the board, the CPU cannot safely execute instructions immediately. Internal supply rails must become valid, reset logic must hold the chip in a defined state, and essential blocks must be released in an ordered sequence. The RP2350 datasheet calls the initial voltage-qualified reset a <strong>power-on reset</strong> and describes the ordered release using the <strong>Power-on State Machine</strong>.</p>
+      <p>That distinction matters: reset is not a C++ function. Reset is hardware behavior that establishes conditions under which a processor can begin its architecturally defined reset path.</p>
+
+      <div class="diagram" role="img" aria-label="Power and boot sequence from USB power through application main">
+        <pre>USB power / VSYS
+      │
+      ▼
+Power-on reset holds the chip inactive
+      │  supply and essential state become valid
+      ▼
+Power-on State Machine releases required blocks
+      │
+      ▼
+Cortex-M33 core 0 begins the RP2350 reset path
+      │
+      ▼
+RP2350 Boot ROM executes from immutable mask ROM
+      │
+      ├── BOOTSEL requested? ── yes ──► USB recovery services
+      │
+      └── no
+           │
+           ▼
+    discover and validate a bootable image
+           │
+           ▼
+    enter that image's startup path
+           │
+           ▼
+    establish C/C++ runtime invariants
+           │
+           ▼
+         main()</pre>
+      </div>
+
+      <p>The RP2350 contains 32 KiB of mask ROM. Raspberry Pi's Boot ROM image occupies this immutable memory and contains the first software instructions executed at reset. That is a concrete silicon fact, not a convention chosen by your CMake project. See <a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf#page=354">RP2350 Datasheet, Chapter 5 and §5.1</a>.</p>
+
+      <h3>What the Boot ROM is responsible for</h3>
+      <p>At this level, treat Boot ROM as a small trusted platform program. It examines boot conditions, prepares hardware needed for boot, decides whether recovery was requested, discovers an acceptable firmware image, and enters it according to the image metadata and device policy.</p>
+      <p>The exact RP2350 algorithm is richer than this first diagram. Later lessons will add OTP policy, secure and non-secure state, block loops, image definitions, partition tables, A/B slots, architecture selection, watchdog requests, RAM images, and other branches. The simple model is useful because it preserves the ordering without pretending the missing branches do not exist.</p>
+
+      <aside class="callout warning">
+        <strong>Model boundary:</strong> do not turn the diagram into a hand-written application jump yet. RP2350 image entry follows RP2350 metadata and Boot ROM rules. Generic STM32 or RP2040 examples are not evidence for the correct RP2350 handoff.
+      </aside>
+
+      <h3>Why <code>main()</code> is late</h3>
+      <p>The Cortex-M33 has no C++ symbol table searcher that looks for a function called <code>main</code>. A compiled image contains machine instructions at linker-selected addresses. Its entry/startup code establishes the language runtime and eventually performs an ordinary machine-level call or branch to the address associated with <code>main</code>.</p>
+      <p>Future weeks will expose every hidden layer:</p>
+
+      <div class="diagram" role="img" aria-label="Hidden layers between image entry and main">
+        <pre>Boot ROM enters image
+        ↓
+image metadata and vector/start information
+        ↓
+Reset_Handler / startup assembly
+        ↓
+copy initialized data: flash → SRAM
+        ↓
+zero uninitialized data in SRAM
+        ↓
+run required C++ constructors
+        ↓
+call main()</pre>
+      </div>
+
+      <p>This week you only need to understand the purpose and order of these stages. Weeks 3–14 will make the compiler, ELF, vector, startup, runtime, and linker mechanisms concrete.</p>
+
+      <h3>Where your custom bootloader will fit</h3>
+      <div class="diagram" role="img" aria-label="Future chain with the custom bootloader between Boot ROM and application">
+        <pre>immutable RP2350 Boot ROM
+            ↓
+replaceable custom bootloader in external flash
+            ↓
+validated, separately linked application in external flash
+            ↓
+application startup and main()</pre>
+      </div>
+      <p>Your custom bootloader does not replace the mask ROM. It is another bootable image discovered and entered by the ROM, and it later selects or enters an application. This distinction is the foundation of both recovery and secure-boot reasoning.</p>
+    </section>
+
+    <section id="memory" aria-labelledby="memory-heading">
+      <h2 id="memory-heading">ROM, flash, and SRAM are not interchangeable</h2>
+
+      <table>
+        <thead><tr><th>Storage</th><th>Retains data without power?</th><th>Normally writable by your firmware?</th><th>Role in this project</th></tr></thead>
+        <tbody>
+          <tr><td>RP2350 mask ROM</td><td>Yes</td><td>No</td><td>Immutable Boot ROM and ROM APIs supplied with the silicon</td></tr>
+          <tr><td>Pico 2 W external NOR flash</td><td>Yes</td><td>Yes, under erase/program rules</td><td>Custom loader, applications, image metadata, and persistent boot state</td></tr>
+          <tr><td>RP2350 SRAM</td><td>No</td><td>Yes</td><td>Stacks, writable data, temporary work, and code that must execute while flash is unavailable</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Two meanings of “volatile”</h3>
+      <p>SRAM is <em>volatile memory</em> because it does not retain data without power. C++ <code>volatile</code> is a language qualifier that affects how the compiler emits accesses to an object. It does not make SRAM non-volatile, provide atomicity, fix races, or preserve values through reset.</p>
+
+      <h3>Why external flash can hold executing code</h3>
+      <p>Pico 2 W firmware usually executes through an <strong>execute-in-place</strong> mapping. The CPU issues an instruction fetch to an address in its memory map; the RP2350's cache and QMI hardware obtain the corresponding bytes from serial flash. The processor sees a memory address, while the memory system translates that access into communication with the external device.</p>
+      <p>That convenient abstraction creates a later bootloader problem: code cannot casually keep fetching from the same flash device while an erase or program operation makes it unavailable. Week 15 will derive the required SRAM execution and flash-safety rules.</p>
+
+      <h3>What BOOTSEL changes</h3>
+      <p>The Pico 2 W schematic labels BOOTSEL as disabling flash boot and forcing USB boot. Holding the button while applying USB power causes the Boot ROM to take its recovery path instead of relying on the normal flash image. See the <a href="https://pip-assets.raspberrypi.com/categories/1088-raspberry-pi-pico-2-w/documents/RP-008306-DS-1-pico-2-w-schematic.pdf">official Pico 2 W schematic</a>.</p>
+      <p>The resulting USB mass-storage interface is provided by code rooted in immutable ROM. Raspberry Pi's board documentation therefore states that BOOTSEL cannot be overwritten by ordinary software and remains a recovery path even when external flash is invalid. See <a href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#reset-flash-memory">Reset flash memory</a>.</p>
+    </section>
+
+    <section id="day-one" class="day-card" aria-labelledby="day-one-heading">
+      <p class="eyebrow">Day 1 · 1.5–2 hours</p>
+      <h2 id="day-one-heading">Derive the chain before memorizing labels</h2>
+
+      <h3>Exercise 1 — Predict from constraints</h3>
+      <p>Answer without reopening the explanation above. Write one or two sentences for each.</p>
+      <ol class="question-list">
+        <li>If external flash can be erased, why must the first recovery code live somewhere else?</li>
+        <li>If SRAM loses state without power, why can it not be the permanent home of the application?</li>
+        <li>If the CPU understands instructions rather than C++ function names, what must connect image entry to <code>main</code>?</li>
+        <li>If a custom loader is replaceable, what must execute before it?</li>
+        <li>If BOOTSEL bypasses normal flash boot, what failure class does it help recover from?</li>
+      </ol>
+
+      <details>
+        <summary>Check the reasoning after writing your answers</summary>
+        <ol>
+          <li>Recovery must not depend solely on the storage it may need to repair. RP2350 places recovery-capable boot code in immutable mask ROM.</li>
+          <li>SRAM is working storage, not power-independent firmware storage. Flash retains the image; startup reconstructs required SRAM state.</li>
+          <li>Image metadata, vector/start information, startup instructions, and linker-selected addresses connect machine reset entry to <code>main</code>.</li>
+          <li>The silicon-provided Boot ROM runs first and decides how to enter the flash-resident custom loader.</li>
+          <li>It recovers from absent, invalid, or malfunctioning flash firmware by taking a ROM-provided USB path.</li>
+        </ol>
+      </details>
+
+      <h3>Exercise 2 — Draw three versions</h3>
+      <p>On paper or in a plain-text file, draw these without copying the diagrams:</p>
+      <ol>
+        <li>The normal current path: ROM → existing flash image.</li>
+        <li>The recovery path: reset → ROM → BOOTSEL USB.</li>
+        <li>The future course path: ROM → custom loader → application.</li>
+      </ol>
+      <p>For every box, annotate:</p>
+      <ul>
+        <li>the storage holding its instructions;</li>
+        <li>whether that storage is writable;</li>
+        <li>who decides the next stage;</li>
+        <li>what evidence could show the stage ran.</li>
+      </ul>
+
+      <aside class="callout">
+        Do not draw “power → main.” If your diagram omits reset hardware, Boot ROM, and startup, it hides exactly the architecture this course exists to reveal.
+      </aside>
+    </section>
+
+    <section id="day-two" class="day-card" aria-labelledby="day-two-heading">
+      <p class="eyebrow">Day 2 · 1.5–2 hours</p>
+      <h2 id="day-two-heading">Diagnostic: find the real starting point</h2>
+      <p>This is a baseline, not a performance test. Answer all twelve from memory, record your first score, and only then study the revealed explanations. Avoid viewing the page source before finishing.</p>
+
+      <form class="quiz" data-quiz>
+        <fieldset data-question data-answer="a">
+          <legend>1. Which software instructions run first after RP2350 reset?</legend>
+          <label><input type="radio" name="q1" value="a"> Boot ROM instructions stored in immutable memory</label>
+          <label><input type="radio" name="q1" value="b"> Application instructions stored in external flash memory</label>
+          <label><input type="radio" name="q1" value="c"> Constructor instructions copied into static random memory</label>
+          <label><input type="radio" name="q1" value="d"> Debugger instructions transferred across universal serial bus</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The RP2350 Boot ROM is etched into 32 KiB of mask ROM and contains the first software executed at reset. External flash is considered later by that code.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="a">
+          <legend>2. What is the best first model of reset?</legend>
+          <label><input type="radio" name="q2" value="a"> Restores defined hardware state then restarts execution</label>
+          <label><input type="radio" name="q2" value="b"> Erases every flash sector then reloads firmware</label>
+          <label><input type="radio" name="q2" value="c"> Zeros all memory cells then stops processor</label>
+          <label><input type="radio" name="q2" value="d"> Recompiles application sources then replaces executable image</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>Reset places selected hardware state into defined conditions and restarts the platform's boot path. Different reset sources can affect different state; reset is not synonymous with erasing storage.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="b">
+          <legend>3. How do mask ROM and flash differ?</legend>
+          <label><input type="radio" name="q3" value="a"> Both lose contents whenever supply voltage disappears</label>
+          <label><input type="radio" name="q3" value="b"> Flash rewritable; mask ROM fixed during manufacture</label>
+          <label><input type="radio" name="q3" value="c"> ROM rewritable; external flash fixed during manufacture</label>
+          <label><input type="radio" name="q3" value="d"> Both require startup copying before instruction execution</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>Both retain data without power, but ordinary firmware can erase and program flash under hardware rules. Mask ROM contents are physically fixed during chip production.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="b">
+          <legend>4. What is SRAM's initial role in this model?</legend>
+          <label><input type="radio" name="q4" value="a"> Retains firmware permanently across complete power removal</label>
+          <label><input type="radio" name="q4" value="b"> Provides volatile workspace for stack and data</label>
+          <label><input type="radio" name="q4" value="c"> Contains immutable instructions chosen during chip fabrication</label>
+          <label><input type="radio" name="q4" value="d"> Presents USB storage while BOOTSEL remains active</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>SRAM is fast read/write working memory used for stacks, writable objects, buffers, and selected executable routines. Its contents are not retained through complete power loss.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="a">
+          <legend>5. What does holding BOOTSEL request?</legend>
+          <label><input type="radio" name="q5" value="a"> Requests ROM recovery before normal flash boot</label>
+          <label><input type="radio" name="q5" value="b"> Rewrites Boot ROM before normal application execution</label>
+          <label><input type="radio" name="q5" value="c"> Selects C++ constructors before linker script evaluation</label>
+          <label><input type="radio" name="q5" value="d"> Disables processor reset before supply voltage stabilizes</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The board button prevents the normal flash boot condition and causes the immutable Boot ROM to prepare its USB BOOTSEL services.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="c">
+          <legend>6. How is <code>main()</code> normally reached?</legend>
+          <label><input type="radio" name="q6" value="a"> Cortex hardware searches symbols until main appears</label>
+          <label><input type="radio" name="q6" value="b"> Boot ROM directly invokes every application main</label>
+          <label><input type="radio" name="q6" value="c"> Startup code establishes runtime then calls main</label>
+          <label><input type="radio" name="q6" value="d"> Linker executes main while generating final ELF</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The linker places code and creates address relationships. At runtime, startup machine instructions establish required memory and language state before transferring control to <code>main</code>.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="b">
+          <legend>7. Where does this course's custom bootloader run?</legend>
+          <label><input type="radio" name="q7" value="a"> Replaces physical mask ROM inside manufactured silicon</label>
+          <label><input type="radio" name="q7" value="b"> Runs after ROM and before selected application</label>
+          <label><input type="radio" name="q7" value="c"> Executes only within desktop compiler process memory</label>
+          <label><input type="radio" name="q7" value="d"> Permanently removes USB recovery from every device</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The custom loader is a replaceable flash-resident stage. RP2350 Boot ROM remains the immutable first software stage and enters the loader according to image rules.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="c">
+          <legend>8. What does C++ <code>volatile</code> provide?</legend>
+          <label><input type="radio" name="q8" value="a"> Guarantees atomic access and cross-core synchronization completely</label>
+          <label><input type="radio" name="q8" value="b"> Prevents every hardware race and timing failure</label>
+          <label><input type="radio" name="q8" value="c"> Requires compiler-visible accesses but not atomicity guarantees</label>
+          <label><input type="radio" name="q8" value="d"> Retains variable values during complete power removal</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The qualifier makes accesses observable to the abstract machine in ways important for MMIO, but it is not a lock, atomic operation, memory barrier, or persistence mechanism.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="b">
+          <legend>9. What is a Cortex-M vector table for?</legend>
+          <label><input type="radio" name="q9" value="a"> Stores project documentation links for future lessons</label>
+          <label><input type="radio" name="q9" value="b"> Provides exception entry addresses and initial state</label>
+          <label><input type="radio" name="q9" value="c"> Maps every flash sector onto USB storage</label>
+          <label><input type="radio" name="q9" value="d"> Contains source filenames for compiler diagnostics only</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The Cortex-M vector table participates in reset/exception entry. Its first entries establish initial execution state, while later entries identify handlers for exceptions and interrupts.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="b">
+          <legend>10. What can happen when normal flash boot fails?</legend>
+          <label><input type="radio" name="q10" value="a"> Processor always executes random bytes without any validation</label>
+          <label><input type="radio" name="q10" value="b"> Boot ROM can enter recovery when boot fails</label>
+          <label><input type="radio" name="q10" value="c"> Host compiler automatically repairs invalid flash through CMake</label>
+          <label><input type="radio" name="q10" value="d"> SRAM permanently preserves last valid application image contents</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>The Boot ROM validates boot structures according to its algorithm. When it cannot find an acceptable boot path, ROM recovery remains available rather than depending on the invalid application.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="a">
+          <legend>11. What does execute in place mean here?</legend>
+          <label><input type="radio" name="q11" value="a"> Processor fetches instructions through interface from flash</label>
+          <label><input type="radio" name="q11" value="b"> Processor copies all flash bytes into ROM</label>
+          <label><input type="radio" name="q11" value="c"> Computer executes firmware while target remains reset</label>
+          <label><input type="radio" name="q11" value="d"> Linker converts external flash into volatile SRAM</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>XIP lets instruction fetches pass through the RP2350 memory/cache/QMI path to external serial flash, presenting it to software through mapped addresses.</div>
+        </fieldset>
+
+        <fieldset data-question data-answer="a">
+          <legend>12. What host observation supports BOOTSEL entry?</legend>
+          <label><input type="radio" name="q12" value="a"> Host exposes an RP2350 USB storage device</label>
+          <label><input type="radio" name="q12" value="b"> C++ source automatically gains a reset handler</label>
+          <label><input type="radio" name="q12" value="c"> SRAM contents become immutable until power removal</label>
+          <label><input type="radio" name="q12" value="d"> Wireless LED directly becomes RP2350 GPIO output</label>
+          <p class="feedback" data-feedback aria-live="polite"></p>
+          <div class="answer-explanation" data-explanation hidden>In ROM BOOTSEL, the host enumerates Raspberry Pi USB recovery interfaces and ordinarily mounts a volume labelled <code>RP2350</code> for UF2 transfer.</div>
+        </fieldset>
+
+        <button type="submit">Check all answers</button>
+        <p class="quiz-result" data-quiz-result tabindex="-1" aria-live="polite"></p>
+      </form>
+
+      <h3>Interpret the baseline</h3>
+      <ul>
+        <li><strong>10–12:</strong> the vocabulary is fluent; Week 1 should focus on causal explanations and evidence.</li>
+        <li><strong>7–9:</strong> the core model exists but contains gaps worth repairing before toolchain work.</li>
+        <li><strong>0–6:</strong> spend extra time redrawing the chain and comparing the three memory types. This is useful calibration, not failure.</li>
+      </ul>
+      <p>Write down every answer you guessed correctly. A correct guess indicates fluency in the moment, not yet storage strength.</p>
+    </section>
+
+    <section id="day-three" class="day-card" aria-labelledby="day-three-heading">
+      <p class="eyebrow">Day 3 · 1.5–2 hours</p>
+      <h2 id="day-three-heading">Verify the model against primary sources</h2>
+
+      <p>Datasheet reading is a navigation skill. Your goal is not to absorb 1,380 pages. Your goal is to locate claims, identify the authority behind them, and distinguish what the document states from what you inferred.</p>
+
+      <h3>Reading 1 — The immutable first program</h3>
+      <p>Open <a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf#page=354">RP2350 Datasheet, Chapter 5 introduction and §5.1</a>.</p>
+      <ol>
+        <li>Find the stated mask ROM capacity.</li>
+        <li>Find the statement identifying Boot ROM as the first reset-time software.</li>
+        <li>Scan the list of concepts in §5.1 without trying to learn them yet.</li>
+        <li>Write why “Boot ROM source is public” does not mean “Boot ROM is writable.”</li>
+      </ol>
+
+      <h3>Reading 2 — Where BOOTSEL branches</h3>
+      <p>Open the Boot ROM boot-path description around <a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf#page=369">RP2350 Datasheet, §5.2 boot path</a>. Locate the decision that checks a BOOTSEL request before normal flash boot proceeds.</p>
+      <p>Record three distinct ways the Boot ROM can learn that BOOTSEL was requested. Do not worry about configuring all of them; the board button is the one used this week.</p>
+
+      <h3>Reading 3 — Board wiring, not chip theory</h3>
+      <p>Open the <a href="https://pip-assets.raspberrypi.com/categories/1088-raspberry-pi-pico-2-w/documents/RP-008306-DS-1-pico-2-w-schematic.pdf">Pico 2 W schematic</a>. Find:</p>
+      <ul>
+        <li>the BOOTSEL label and its stated effect;</li>
+        <li>the 32 Mbit/4 MiB flash device;</li>
+        <li>the wireless-interface GPIO note;</li>
+        <li>the LED's relationship to the wireless device.</li>
+      </ul>
+      <p>This is an important method: use the RP2350 datasheet for silicon behavior and the Pico 2 W schematic for how the board connects that silicon.</p>
+
+      <h3>Reading 4 — Reset is sequenced hardware</h3>
+      <p>Open <a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf#page=499">RP2350 Datasheet, §7.4</a>. Study Figure 27 and the reset-sequence list. Then read the power-on reset overview in §7.6.1.</p>
+      <p>Explain why “the processor starts when voltage appears” is incomplete. Your explanation should mention voltage qualification, held reset, and ordered release.</p>
+
+      <h3>Source-evidence worksheet</h3>
+      <table>
+        <thead><tr><th>Claim</th><th>Source location</th><th>What the source establishes</th><th>Your inference</th></tr></thead>
+        <tbody>
+          <tr><td>Boot ROM runs first</td><td>RP2350 Ch. 5 introduction</td><td>Fill this in</td><td>Fill this in</td></tr>
+          <tr><td>BOOTSEL bypasses normal flash boot</td><td>RP2350 §5.2 + Pico 2 W schematic</td><td>Fill this in</td><td>Fill this in</td></tr>
+          <tr><td>Recovery is not stored in external flash</td><td>Pico-series reset-flash documentation</td><td>Fill this in</td><td>Fill this in</td></tr>
+          <tr><td>Reset release is ordered</td><td>RP2350 §7.4, Figure 27</td><td>Fill this in</td><td>Fill this in</td></tr>
+        </tbody>
+      </table>
+
+      <aside class="callout">
+        Primary-source reading is not copying sentences. State the mechanism in your own words, attach a precise source, and label conclusions that you derived rather than read directly.
+      </aside>
+    </section>
+
+    <section id="day-four" class="day-card" aria-labelledby="day-four-heading">
+      <p class="eyebrow">Day 4 · about 2 hours</p>
+      <h2 id="day-four-heading">Hardware lab: observe immutable recovery</h2>
+
+      <aside class="callout warning">
+        This lab does not erase or program flash. Do not copy any UF2 onto the mounted volume yet. If the host offers to format the device, cancel that prompt.
+      </aside>
+
+      <h3>What you are testing</h3>
+      <p><strong>Hypothesis:</strong> holding BOOTSEL while applying USB power selects a host-visible recovery mode supplied independently of the current flash application.</p>
+      <p><strong>Independent variable:</strong> whether BOOTSEL is held at connection.</p>
+      <p><strong>Evidence:</strong> USB enumeration and the presence of an <code>RP2350</code> mass-storage volume.</p>
+
+      <h3>Step 1 — Establish the host baseline</h3>
+      <p>Unplug the Pico 2 W. Run:</p>
+
+      <pre><code>lsusb
+lsblk -o NAME,LABEL,SIZE,TYPE,TRAN,MOUNTPOINTS</code></pre>
+
+      <p>Save or copy the output. You need a “before” observation so that a later device entry is evidence rather than assumption.</p>
+
+      <h3>Step 2 — Force BOOTSEL</h3>
+      <ol>
+        <li>Keep the board unplugged.</li>
+        <li>Press and hold the physical <strong>BOOTSEL</strong> button.</li>
+        <li>While holding it, connect the USB cable.</li>
+        <li>Release the button after the cable is seated.</li>
+      </ol>
+
+      <p>Now run the observations again:</p>
+
+      <pre><code>lsusb
+lsblk -o NAME,LABEL,SIZE,TYPE,TRAN,MOUNTPOINTS
+findmnt -rn -o SOURCE,TARGET,LABEL | grep -i rp2350 || true</code></pre>
+
+      <p>Expected evidence includes a newly enumerated Raspberry Pi device and a small removable volume labelled <code>RP2350</code>. Desktop automount behavior varies, so the volume may exist without being mounted.</p>
+
+      <h3>Step 3 — Inspect without modifying</h3>
+      <p>If <code>lsblk</code> shows a mount path, list it. Replace the placeholder with the exact path reported by your machine:</p>
+
+      <pre><code>ls -la /exact/mount/path
+
+# If this file exists, read it without changing anything:
+sed -n '1,40p' /exact/mount/path/INFO_UF2.TXT</code></pre>
+
+      <p>Record:</p>
+      <ul>
+        <li>USB device description or identifier;</li>
+        <li>block-device name;</li>
+        <li>volume label;</li>
+        <li>mount path, if any;</li>
+        <li>files visible on the volume;</li>
+        <li>what changed relative to the unplugged baseline.</li>
+      </ul>
+
+      <h3>Step 4 — Compare normal connection</h3>
+      <ol>
+        <li>Unplug the board.</li>
+        <li>Wait several seconds so the host removes the USB device.</li>
+        <li>Reconnect without touching BOOTSEL.</li>
+        <li>Repeat <code>lsusb</code> and <code>lsblk</code>.</li>
+      </ol>
+
+      <p>There are two useful outcomes:</p>
+      <ul>
+        <li><strong>The mass-storage volume disappears:</strong> a flash application or other normal boot path ran instead of BOOTSEL.</li>
+        <li><strong>The mass-storage volume returns:</strong> flash may contain no bootable image, or another BOOTSEL request exists. The Boot ROM recovery path still worked; the normal flash outcome simply needs investigation in Week 2.</li>
+      </ul>
+
+      <h3>The controlled failure</h3>
+      <p>Your controlled “failure” is connecting without BOOTSEL and predicting that ROM USB storage will not appear when a valid normal image runs. This comparison is intentionally non-destructive. Week 2 will introduce a known firmware image before we deliberately corrupt or erase anything.</p>
+
+      <h3>Troubleshooting from evidence</h3>
+      <table>
+        <thead><tr><th>Observation</th><th>Likely class of cause</th><th>Next non-destructive check</th></tr></thead>
+        <tbody>
+          <tr><td>No new USB device</td><td>Cable, port, power, button timing, or host USB issue</td><td>Try another known data port/cable and repeat the unplugged baseline</td></tr>
+          <tr><td>USB device appears, no mounted volume</td><td>Automount disabled or permissions</td><td>Use <code>lsblk</code>; a block device can exist without a mount</td></tr>
+          <tr><td>Volume appears during normal connection too</td><td>No valid flash boot, persistent request, or BOOTSEL still active</td><td>Ensure the button is released and capture both USB descriptions</td></tr>
+          <tr><td>Host asks to format</td><td>Host did not recognize the exposed filesystem correctly</td><td>Cancel; do not format; capture <code>lsusb</code> and <code>lsblk</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Explain what the lab did not prove</h3>
+      <p>Seeing a USB volume proves that a recovery-capable path enumerated. It does not yet prove every Boot ROM branch, the contents of your flash, the validity of a custom image, or the exact machine instruction that executed first. Good engineering claims stay inside the evidence.</p>
+    </section>
+
+    <section id="day-five" class="day-card" aria-labelledby="day-five-heading">
+      <p class="eyebrow">Day 5 · 1.5–2 hours</p>
+      <h2 id="day-five-heading">Teach the mechanism back</h2>
+
+      <p>Close the glossary and diagrams. Speak or write a five-minute explanation for an experienced C++ developer who has never used a microcontroller.</p>
+
+      <h3>Your explanation must answer</h3>
+      <ol class="question-list">
+        <li>What hardware event prevents the processor from starting too early?</li>
+        <li>What memory contains the first software executed after reset?</li>
+        <li>Why can that memory recover a broken external-flash application?</li>
+        <li>What decision does BOOTSEL influence?</li>
+        <li>What does external flash contribute to normal boot?</li>
+        <li>What does SRAM contribute once an image begins?</li>
+        <li>Why is <code>main()</code> not the image's first machine-level event?</li>
+        <li>Where will the future custom loader sit?</li>
+      </ol>
+
+      <h3>Interleave the three paths</h3>
+      <p>From memory, draw these in a random order:</p>
+      <ul>
+        <li>normal flash application;</li>
+        <li>ROM BOOTSEL recovery;</li>
+        <li>future custom loader and application.</li>
+      </ul>
+      <p>Mixing related paths prevents recognition from masquerading as recall.</p>
+
+      <h3>One-minute distinctions</h3>
+      <p>Explain each pair in one sentence:</p>
+      <ul>
+        <li>reset vs power cycle;</li>
+        <li>Boot ROM vs custom bootloader;</li>
+        <li>mask ROM vs flash;</li>
+        <li>volatile SRAM vs C++ <code>volatile</code>;</li>
+        <li>firmware image vs UF2 container;</li>
+        <li>source-level <code>main</code> vs machine-level image entry.</li>
+      </ul>
+
+      <details>
+        <summary>Common misconceptions to check after the teach-back</summary>
+        <ul>
+          <li>“BOOTSEL is stored in the application.” It is a board-selected path handled by immutable Boot ROM.</li>
+          <li>“Reset erases RAM and flash.” Reset effects depend on the reset source; flash is not automatically erased.</li>
+          <li>“The CPU calls <code>main</code> after reset.” Startup instructions and image-entry rules exist between those events.</li>
+          <li>“The onboard LED is GP25.” On Pico 2 W, the visible LED is controlled through the CYW43439 wireless device.</li>
+          <li>“Public Boot ROM source makes ROM replaceable.” Published source aids understanding; the manufactured mask ROM remains immutable.</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="assessment" aria-labelledby="assessment-heading">
+      <h2 id="assessment-heading">Week 1 exit assessment</h2>
+      <p>Send the following evidence to your teaching agent. Do not polish away uncertainty; it determines the right depth for Week 2.</p>
+
+      <div class="panel">
+        <h3>Submission template</h3>
+        <pre><code>Week 1 baseline score: __ / 12
+
+1. My reset-to-application explanation:
+...
+
+2. My three boot-chain diagrams:
+...
+
+3. BOOTSEL evidence:
+- lsusb change:
+- lsblk label/device:
+- mounted files, if any:
+- normal-connection comparison:
+
+4. Boot ROM vs custom bootloader:
+...
+
+5. ROM vs flash vs SRAM:
+...
+
+6. Why main() is late:
+...
+
+7. One claim directly supported by a source:
+...
+
+8. One inference I made from multiple facts:
+...
+
+9. The least clear concept:
+...
+
+10. One follow-up question:
+...</code></pre>
+      </div>
+
+      <h3>Completion standard</h3>
+      <p>Week 1 is complete when you can explain the ordering without prompts, distinguish the three memory roles, provide BOOTSEL evidence, and avoid claiming that a custom loader replaces mask ROM. Your diagnostic score alone does not determine completion.</p>
+
+      <h3>Primary source for this week</h3>
+      <p><strong>Required:</strong> <a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf#page=354">RP2350 Datasheet, Chapter 5 introduction and §5.1</a>. It is the authoritative starting point for understanding why the Boot ROM exists and what later boot concepts mean.</p>
+
+      <aside class="callout success">
+        Ask your teaching agent about anything unclear. Send the exit assessment before beginning Week 2 so the next lesson can target your actual understanding rather than an assumed average learner.
+      </aside>
+    </section>
+
+    <section aria-labelledby="sources-heading">
+      <h2 id="sources-heading">Sources used in this lesson</h2>
+      <ul>
+        <li><a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf">RP2350 Datasheet</a> — Chapter 5 Boot ROM; §7.4 reset sequence; §7.6.1 power-on reset.</li>
+        <li><a href="https://pip-assets.raspberrypi.com/categories/1088-raspberry-pi-pico-2-w/documents/RP-008306-DS-1-pico-2-w-schematic.pdf">Pico 2 W schematic</a> — BOOTSEL, flash, wireless, and LED board wiring.</li>
+        <li><a href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#reset-flash-memory">Pico-series board documentation</a> — immutable BOOTSEL recovery behavior.</li>
+        <li><a href="https://datasheets.raspberrypi.com/pico/getting-started-with-pico.pdf">Getting Started with Raspberry Pi Pico-series</a> — official USB mass-storage and build-artifact workflow.</li>
+      </ul>
+    </section>
+
+    <nav class="page-nav" aria-label="Course navigation">
+      <a href="../reference/course-roadmap.html">← Course roadmap</a>
+      <span>Week 2 unlocks after the exit assessment</span>
+    </nav>
+  </main>
+
+  <footer class="page-footer">Week 1 · Reset to ROM Recovery · RP2350 Pico 2 W Custom Bootloader Learning Project</footer>
+</body>
+</html>

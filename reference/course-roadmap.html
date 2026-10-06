@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The 32-week roadmap for learning RP2350 architecture and building a custom Pico 2 W bootloader.">
+  <title>Course Roadmap · RP2350 Bootloader Course</title>
+  <link rel="stylesheet" href="../assets/course.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="course-mark" href="../lessons/0001-reset-to-rom-recovery.html">RP2350 Bootloader Course</a>
+      <div class="header-actions">
+        <a href="glossary.html">Glossary</a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+          <span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Use dark mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="content" class="page-shell">
+    <header class="hero">
+      <p class="eyebrow">Course reference</p>
+      <h1>From reset to resilient updates</h1>
+      <p class="lede">A 32-week sequence for learning the machine beneath C++ and building a boot chain you can explain under failure—not merely one that happens to work.</p>
+      <div class="metadata">
+        <span>32 weeks</span>
+        <span>8–10 hours each</span>
+        <span>One Pico 2 W</span>
+        <span>Cortex-M33 core 0</span>
+      </div>
+    </header>
+
+    <section aria-labelledby="method">
+      <h2 id="method">The weekly method</h2>
+      <div class="diagram" role="img" aria-label="Learning cycle: understand, predict, implement, inspect, break, diagnose, explain, improve">
+        <pre>understand → predict → implement → inspect
+     ↑                                  ↓
+ improve  ←  explain  ←  diagnose  ←  break</pre>
+      </div>
+      <p>Each week is a single detailed HTML lesson. Later lessons are created only after the previous exit assessment establishes what is understood, uncertain, or misconceived.</p>
+    </section>
+
+    <section aria-labelledby="weeks">
+      <h2 id="weeks">Week-by-week path</h2>
+      <table>
+        <thead><tr><th>Week</th><th>Focus</th><th>Observable proof</th></tr></thead>
+        <tbody>
+          <tr><td><a href="../lessons/0001-reset-to-rom-recovery.html">1</a></td><td>Reset, memory, and ROM BOOTSEL recovery</td><td>Observe BOOTSEL and explain the reset-to-application chain</td></tr>
+          <tr><td>2</td><td>Arm toolchain, Pico SDK 2.3.0, and first firmware</td><td>Build, flash, and inspect USB and LED applications</td></tr>
+          <tr><td>3</td><td>Preprocessor through UF2</td><td>Identify every intermediate build artifact</td></tr>
+          <tr><td>4</td><td>ELF, symbols, sections, relocations, and map files</td><td>Locate code and data without an IDE</td></tr>
+          <tr><td>5</td><td>Cortex-M33 registers, stack, and ABI</td><td>Explain a compiled call from disassembly</td></tr>
+          <tr><td>6</td><td>Exceptions, vectors, NVIC, and HardFault evidence</td><td>Decode a synthetic exception frame</td></tr>
+          <tr><td>7</td><td>RP2350 architecture, memory, and buses</td><td>Derive an address path from the datasheet</td></tr>
+          <tr><td>8</td><td>MMIO, volatile, atomic aliases, and ordering</td><td>Predict and inspect register-level code</td></tr>
+          <tr><td>9</td><td>SDK calls down to hardware operations</td><td>Trace one SDK API to generated instructions</td></tr>
+          <tr><td>10</td><td>Clocks, resets, watchdog, and reset causes</td><td>Distinguish and record reset paths</td></tr>
+          <tr><td>11</td><td>Reset entry, vectors, and SDK startup</td><td>Trace the path to runtime initialization</td></tr>
+          <tr><td>12</td><td>.data, .bss, constructors, and runtime support</td><td>Diagnose deliberately broken initialization</td></tr>
+          <tr><td>13</td><td>Minimal custom startup runtime</td><td>Reach main with owned initialization code</td></tr>
+          <tr><td>14</td><td>Linker scripts, VMA/LMA, and assertions</td><td>Prove an intentional section layout</td></tr>
+          <tr><td>15</td><td>NOR flash, QMI/QSPI, XIP, and SRAM execution</td><td>Explain safe flash modification constraints</td></tr>
+          <tr><td>16</td><td>RP2350 Boot ROM, images, blocks, and partitions</td><td>Explain documented image discovery</td></tr>
+          <tr><td>17</td><td>Four-MiB flash layout and separate images</td><td>Build non-overlapping loader and application</td></tr>
+          <tr><td>18</td><td>First custom loader and ROM image chaining</td><td>Boot a separately linked application</td></tr>
+          <tr><td>19</td><td>Handoff state and execution contracts</td><td>Control vectors, stack, interrupts, and watchdog</td></tr>
+          <tr><td>20</td><td>Failure-first boot debugging</td><td>Diagnose five deliberately broken images</td></tr>
+          <tr><td>21</td><td>Firmware header and CRC32 validation</td><td>Reject erased, truncated, and corrupted images</td></tr>
+          <tr><td>22</td><td>USB CDC update protocol and host tool</td><td>Specify and test every protocol message</td></tr>
+          <tr><td>23</td><td>Receiver and SRAM-safe flash programming</td><td>Erase, program, read back, and verify</td></tr>
+          <tr><td>24</td><td>Timeouts, retries, duplicates, and interruptions</td><td>Recover from transport faults predictably</td></tr>
+          <tr><td>25</td><td>Explicit boot state machine</td><td>Account for every state and transition</td></tr>
+          <tr><td>26</td><td>A/B application slots</td><td>Update only the inactive slot</td></tr>
+          <tr><td>27</td><td>Trial boot, confirmation, watchdog, and rollback</td><td>Automatically reject a failing trial image</td></tr>
+          <tr><td>28</td><td>Redundant metadata and power-loss safety</td><td>Survive cable pulls at update boundaries</td></tr>
+          <tr><td>29</td><td>Threat model, SHA-256, and signatures</td><td>Distinguish integrity from authenticity</td></tr>
+          <tr><td>30</td><td>Signed images, anti-rollback, and RP2350 security</td><td>Reject altered and downgraded images without OTP writes</td></tr>
+          <tr><td>31</td><td>Wi-Fi OTA into the inactive slot</td><td>Download, verify, trial, confirm, or roll back</td></tr>
+          <tr><td>32</td><td>Capstone fault campaign and portability</td><td>Defend the design and transfer it to another MCU</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section aria-labelledby="constraints">
+      <h2 id="constraints">The one-board contract</h2>
+      <ul>
+        <li>USB CDC replaces an external UART adapter.</li>
+        <li>ELF inspection, runtime reports, and reset evidence replace live SWD—not equivalently, but honestly.</li>
+        <li>The CYW43439-controlled LED provides visible feedback; it is not treated as a direct RP2350 GPIO.</li>
+        <li>External-MCU boot hosting stays architectural, and OTP remains read-only.</li>
+        <li>Every destructive experiment begins with immutable ROM BOOTSEL recovery.</li>
+      </ul>
+    </section>
+
+    <nav class="page-nav" aria-label="Course navigation">
+      <a href="../lessons/0001-reset-to-rom-recovery.html">Start Week 1 →</a>
+      <a href="glossary.html">Open glossary →</a>
+    </nav>
+  </main>
+
+  <footer class="page-footer">RP2350 Pico 2 W Custom Bootloader Learning Project</footer>
+</body>
+</html>

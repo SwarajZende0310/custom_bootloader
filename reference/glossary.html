@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A print-friendly glossary for the RP2350 Pico 2 W bootloader course.">
+  <title>Glossary · RP2350 Bootloader Course</title>
+  <link rel="stylesheet" href="../assets/course.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="course-mark" href="../lessons/0001-reset-to-rom-recovery.html">RP2350 Bootloader Course</a>
+      <div class="header-actions">
+        <a href="course-roadmap.html">Roadmap</a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+          <span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Use dark mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="content" class="page-shell">
+    <header class="hero">
+      <p class="eyebrow">Living reference · Week 1 edition</p>
+      <h1>Boot vocabulary without fog</h1>
+      <p class="lede">Short definitions for terms used precisely throughout the course. Definitions will deepen as the implementation exposes more machinery.</p>
+    </header>
+
+    <section aria-labelledby="terms">
+      <h2 id="terms">Core terms</h2>
+      <div class="two-column">
+        <article class="reference-card"><h3>Application</h3><p>The firmware that provides the device's intended behavior after the boot process selects and enters it.</p></article>
+        <article class="reference-card"><h3>BOOTSEL</h3><p>An RP-series ROM boot mode selected on Pico 2 W by preventing normal external-flash boot, commonly by holding the board's BOOTSEL button during USB connection.</p></article>
+        <article class="reference-card"><h3>Boot chain</h3><p>The ordered transfer of control through reset hardware, Boot ROM, a custom loader if present, startup runtime, and application.</p></article>
+        <article class="reference-card"><h3>Boot ROM</h3><p>Raspberry Pi's immutable code in RP2350 mask ROM. It is the first software executed after reset and is distinct from your custom bootloader.</p></article>
+        <article class="reference-card"><h3>Bootloader</h3><p>Software that discovers, validates, selects, loads, updates, or transfers control to another firmware image. In this course, “custom bootloader” means replaceable code in external flash.</p></article>
+        <article class="reference-card"><h3>CPU core</h3><p>The programmable execution engine that fetches and performs instructions. RP2350 can expose Arm Cortex-M33 or Hazard3 RISC-V processors; the course begins with Cortex-M33 core 0.</p></article>
+        <article class="reference-card"><h3>External flash</h3><p>Non-volatile storage outside the RP2350 package. Pico 2 W wires a 4 MiB serial NOR flash to the RP2350 for firmware and persistent data.</p></article>
+        <article class="reference-card"><h3>Firmware image</h3><p>A structured collection of executable code, data, and metadata intended to be discovered or installed as one bootable unit.</p></article>
+        <article class="reference-card"><h3>Handoff</h3><p>The controlled transfer from one boot stage to the next, including any required execution-state cleanup and destination setup.</p></article>
+        <article class="reference-card"><h3>Mask ROM</h3><p>Memory whose contents are fixed as part of silicon manufacture. Normal software cannot erase or rewrite it.</p></article>
+        <article class="reference-card"><h3>Non-volatile</h3><p>Retains stored information after power is removed. Mask ROM and flash are non-volatile; SRAM is not.</p></article>
+        <article class="reference-card"><h3>Power-on reset (POR)</h3><p>A hardware reset that holds the chip inactive until its internal supply is high enough for reliable core operation, then begins the reset-release sequence.</p></article>
+        <article class="reference-card"><h3>Reset</h3><p>A hardware transition that places selected chip state into defined conditions and restarts execution through the platform's reset path. Reset does not necessarily erase memory.</p></article>
+        <article class="reference-card"><h3>Reset handler</h3><p>The entry routine for an executable image after the processor's reset/vector mechanism selects it. It normally prepares the language runtime before calling <code>main()</code>.</p></article>
+        <article class="reference-card"><h3>SRAM</h3><p>Fast, volatile read/write memory used for stacks, writable data, temporary work, and sometimes executable routines while flash is unavailable.</p></article>
+        <article class="reference-card"><h3>Startup runtime</h3><p>The instructions between image entry and <code>main()</code> that establish memory and language invariants such as initialized data, zeroed BSS, and C++ constructors.</p></article>
+        <article class="reference-card"><h3>UF2</h3><p>A block-oriented firmware transport format designed for drag-and-drop flashing. A UF2 packages addressable payload data; it is not the same thing as an ELF executable.</p></article>
+        <article class="reference-card"><h3>USB mass-storage mode</h3><p>The host-visible drive interface offered by ROM BOOTSEL so a UF2 can be copied onto the device without an application or external debugger.</p></article>
+        <article class="reference-card"><h3>Vector table</h3><p>An address table used by Cortex-M exception handling. Its first entries establish initial execution state, and later entries identify exception and interrupt handlers.</p></article>
+        <article class="reference-card"><h3>Volatile memory</h3><p>Storage whose contents are not guaranteed after loss of power. This “volatile” is a hardware property and is distinct from the C++ <code>volatile</code> qualifier.</p></article>
+        <article class="reference-card"><h3>XIP</h3><p>Execute in place: fetching instructions through the memory system from external serial flash without first copying the entire program into SRAM.</p></article>
+      </div>
+    </section>
+
+    <section aria-labelledby="distinctions">
+      <h2 id="distinctions">Distinctions worth protecting</h2>
+      <table>
+        <thead><tr><th>Do not confuse</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Boot ROM vs custom bootloader</td><td>One is immutable silicon-provided code; the other is your replaceable flash-resident firmware.</td></tr>
+          <tr><td>Reset vs power cycle</td><td>Several reset sources exist, and different state can survive different reset depths.</td></tr>
+          <tr><td>Flash vs ROM</td><td>Both retain data without power, but flash is electrically erasable and ROM is not.</td></tr>
+          <tr><td>Firmware image vs UF2</td><td>The image is the bootable content; UF2 is one container used to transport addressed blocks.</td></tr>
+          <tr><td>Hardware volatility vs C++ volatile</td><td>One describes retention across power loss; the other constrains compiler treatment of accesses.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <nav class="page-nav" aria-label="Course navigation">
+      <a href="course-roadmap.html">← Course roadmap</a>
+      <a href="../lessons/0001-reset-to-rom-recovery.html">Week 1 →</a>
+    </nav>
+  </main>
+
+  <footer class="page-footer">Print this page for a compact desk reference.</footer>
+</body>
+</html>
