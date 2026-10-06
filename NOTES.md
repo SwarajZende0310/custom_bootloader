@@ -10,3 +10,12 @@
 - Theme: every lesson/reference page supports persistent light/dark mode and clean light printing.
 - Safety: no OTP writes on this only board. Discuss irreversible state before presenting any OTP-related command, even read-only tooling.
 - Progression: create only the next weekly lesson after reviewing the learner's exit assessment and updating learning records.
+
+## Current checkpoint
+
+- **Current lesson:** Week 1 — `lessons/0001-reset-to-rom-recovery.html`
+- **Status:** Lesson generated and ready; completion has not yet been demonstrated.
+- **Latest learning record:** `learning-records/0001-cpp-background-and-mcu-refresh.md`
+- **Next action:** Complete Week 1 and submit its exit assessment before creating Week 2.
+- **Unresolved questions:** None recorded.
+- **Last updated:** 2026-10-07
